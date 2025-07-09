@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Photo Combiner</title>
+  <title>Photo Combiner with Optional BG Removal</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * {
@@ -56,36 +56,33 @@
       background-color: #004ccc;
     }
 
-    button:disabled {
-      background-color: #aaa;
-      cursor: not-allowed;
+    .toggle-btn.active {
+      background-color: #28a745 !important;
     }
 
     #preview {
       margin-top: 10px;
       max-width: 90%;
     }
-
-    @media (max-width: 500px) {
-      button {
-        font-size: 14px;
-        padding: 10px 14px;
-      }
-    }
   </style>
 </head>
 <body>
-  <h2>📸 Click Two Photos & Combine Them</h2>
+  <h2>📸 Click Two Photos & Combine</h2>
 
   <video id="video" width="320" height="240" autoplay playsinline></video>
 
   <div class="controls">
     <button onclick="capturePhoto()">📷 Take Photo</button>
     <button onclick="switchCamera()">🔄 Switch Camera</button>
+    <button onclick="toggleRemoveBg()" id="removeBgBtn">🧼 Remove Background: OFF</button>
     <button onclick="downloadCombined()" style="display:none;" id="downloadBtn">⬇️ Download Combined</button>
   </div>
 
   <canvas id="preview" style="display:none;"></canvas>
+
+  <!-- TensorFlow + BodyPix -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix"></script>
 
   <script>
     let video = document.getElementById('video');
@@ -94,11 +91,11 @@
     let images = [];
     let useFrontCamera = true;
     let stream;
+    let net;
+    let removeBg = false;
 
     async function startCamera() {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
+      if (stream) stream.getTracks().forEach(track => track.stop());
 
       const constraints = {
         video: {
@@ -120,20 +117,60 @@
       startCamera();
     }
 
-    function capturePhoto() {
+    function toggleRemoveBg() {
+      removeBg = !removeBg;
+      const btn = document.getElementById('removeBgBtn');
+      btn.textContent = `🧼 Remove Background: ${removeBg ? "ON" : "OFF"}`;
+      btn.classList.toggle("active", removeBg);
+    }
+
+    async function capturePhoto() {
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = video.videoWidth;
       tempCanvas.height = video.videoHeight;
       const tempCtx = tempCanvas.getContext('2d');
       tempCtx.drawImage(video, 0, 0);
-      const img = new Image();
-      img.src = tempCanvas.toDataURL('image/png');
-      img.onload = () => {
-        images.push(img);
-        if (images.length === 2) {
-          mergePhotos();
+
+      if (removeBg) {
+        const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+        const segmentation = await net.segmentPerson(imageData, {
+          internalResolution: 'medium',
+          segmentationThreshold: 0.7
+        });
+
+        const fgCanvas = document.createElement('canvas');
+        fgCanvas.width = tempCanvas.width;
+        fgCanvas.height = tempCanvas.height;
+        const fgCtx = fgCanvas.getContext('2d');
+        const fgImage = fgCtx.createImageData(fgCanvas.width, fgCanvas.height);
+
+        for (let i = 0; i < segmentation.data.length; i++) {
+          const offset = i * 4;
+          if (segmentation.data[i] === 1) {
+            fgImage.data[offset] = imageData.data[offset];
+            fgImage.data[offset + 1] = imageData.data[offset + 1];
+            fgImage.data[offset + 2] = imageData.data[offset + 2];
+            fgImage.data[offset + 3] = 255;
+          } else {
+            fgImage.data[offset + 3] = 0;
+          }
         }
-      };
+
+        fgCtx.putImageData(fgImage, 0, 0);
+        const img = new Image();
+        img.src = fgCanvas.toDataURL('image/png');
+        img.onload = () => {
+          images.push(img);
+          if (images.length === 2) mergePhotos();
+        };
+      } else {
+        const img = new Image();
+        img.src = tempCanvas.toDataURL('image/png');
+        img.onload = () => {
+          images.push(img);
+          if (images.length === 2) mergePhotos();
+        };
+      }
     }
 
     function mergePhotos() {
@@ -158,7 +195,12 @@
       link.click();
     }
 
-    startCamera();
+    async function main() {
+      await startCamera();
+      net = await bodyPix.load(); // load bodypix once
+    }
+
+    main();
   </script>
 </body>
 </html>
