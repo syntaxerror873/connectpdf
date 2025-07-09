@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Camera Image Combiner</title>
+  <title>Camera Switch & Combine Photos</title>
   <style>
     video, canvas {
       border: 2px solid #000;
@@ -11,10 +11,11 @@
   </style>
 </head>
 <body>
-  <h2>📷 Capture Two Photos & Combine Side-by-Side</h2>
+  <h2>📷 Take Two Photos & Merge</h2>
 
-  <video id="video" width="320" height="240" autoplay></video><br>
+  <video id="video" width="320" height="240" autoplay playsinline></video><br>
   <button onclick="capturePhoto()">📸 Take Photo</button>
+  <button onclick="switchCamera()">🔄 Switch Camera</button>
   <button onclick="downloadCombined()" style="display:none;" id="downloadBtn">⬇️ Download Combined</button><br>
 
   <canvas id="preview" style="display:none;"></canvas>
@@ -24,12 +25,33 @@
     let canvas = document.getElementById('preview');
     let context = canvas.getContext('2d');
     let images = [];
+    let useFrontCamera = true;
+    let stream;
 
-    // Start webcam
-    navigator.mediaDevices.getUserMedia({ video: true })
-      .then(stream => {
+    async function startCamera() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+
+      const constraints = {
+        video: {
+          facingMode: useFrontCamera ? "user" : "environment"
+        }
+      };
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = stream;
-      });
+      } catch (err) {
+        alert("Camera access denied or not available.");
+        console.error(err);
+      }
+    }
+
+    function switchCamera() {
+      useFrontCamera = !useFrontCamera;
+      startCamera();
+    }
 
     function capturePhoto() {
       const tempCanvas = document.createElement('canvas');
@@ -48,8 +70,8 @@
     }
 
     function mergePhotos() {
-      const gap = 10;  
-      const width = images[0].width + images[1].width + gap;
+      const gap = 10;
+      const width = images[0].width + gap + images[1].width;
       const height = Math.max(images[0].height, images[1].height);
       canvas.width = width;
       canvas.height = height;
@@ -68,6 +90,8 @@
       link.href = canvas.toDataURL();
       link.click();
     }
+
+    startCamera(); // start with front camera
   </script>
 </body>
 </html>
